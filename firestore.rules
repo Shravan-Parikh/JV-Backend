@@ -1,0 +1,78 @@
+// ⚠️  READ THIS BEFORE PUBLISHING
+//
+// Firestore rules are PROJECT-WIDE and publishing REPLACES the entire ruleset.
+// The Firebase project this app currently uses is shared with two other apps,
+// so do NOT paste this file in as-is — that would drop both of their rulesets
+// and break them.
+//
+// Instead: open Firebase Console → Firestore → Rules, and paste ONLY the
+// `jv_*` blocks below into your existing ruleset, alongside what's already
+// there (the `cs_*` blocks and the thrift-store ones).
+//
+// Everything here is scoped to collections prefixed `jv_`, so no existing
+// collection is read, written or affected.
+//
+// Once JV has a Firebase project of its own this file becomes the whole
+// ruleset and can be published directly — see backend/scripts/migrate-firebase.js.
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------------------------------------------------------------------
+    // ⬇️  KEEP YOUR EXISTING RULES HERE (thrift-store + cs_* blocks)
+    // ---------------------------------------------------------------------
+
+
+    // ---------------------------------------------------------------------
+    // ⬇️  JV Enterprises — copy from here down
+    // ---------------------------------------------------------------------
+
+    function jvSignedIn() {
+      return request.auth != null;
+    }
+
+    function jvIsOwner(uid) {
+      return jvSignedIn() && request.auth.uid == uid;
+    }
+
+    function jvIsAdmin() {
+      return jvSignedIn()
+        && exists(/databases/$(database)/documents/jv_users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/jv_users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // User profiles. A user owns their own document; admins may list users.
+    match /jv_users/{uid} {
+      allow read:   if jvIsOwner(uid) || jvIsAdmin();
+      allow create: if jvIsOwner(uid);
+      allow update: if jvIsOwner(uid);
+      allow delete: if false;
+    }
+
+    // The client book — one document per user.
+    match /jv_clients/{uid} {
+      allow read, write: if jvIsOwner(uid);
+    }
+
+    // The ledger. The summary document names the months that hold entries, and
+    // each month document holds that month's entries. The wildcard covers the
+    // month sub-collection, which inherits nothing from the parent match.
+    match /jv_ledgers/{uid} {
+      allow read, write: if jvIsOwner(uid);
+
+      match /months/{month} {
+        allow read, write: if jvIsOwner(uid);
+      }
+    }
+
+    // Usage log. Users may only append events stamped with their own uid, and
+    // may never read, edit or delete them. Admins read to see what gets used.
+    match /jv_activity/{eventId} {
+      allow create: if jvSignedIn() && request.resource.data.uid == request.auth.uid;
+      allow read:   if jvIsAdmin();
+      allow update, delete: if false;
+    }
+  }
+}

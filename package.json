@@ -1,0 +1,23 @@
+{
+  "name": "jv-enterprises-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "JV Enterprises API \u2014 yarn twisting ledger",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "create-user": "node scripts/create-user.js",
+    "test": "node test/domain.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2"
+  }
+}
