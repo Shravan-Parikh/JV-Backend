@@ -51,8 +51,17 @@ say "Deploying $SERVICE to $PROJECT · $REGION"
 
 # Keep whatever CORS origin is already set; the web app's deploy script is what
 # puts its own URL here, and a redeploy must not undo that.
-EXISTING_CORS="$(gcloud run services describe "$SERVICE" --region "$REGION" \
-  --format='value(spec.template.spec.containers[0].env.filter("name:CORS_ORIGIN").extract("value"))' 2>/dev/null || true)"
+#
+# Read out of the JSON rather than with a `value(...)` projection: that
+# projection renders a list as ['a,b'], brackets and quotes included, which then
+# fails --set-env-vars parsing the moment a second origin is added.
+EXISTING_CORS="$(gcloud run services describe "$SERVICE" --region "$REGION" --format=json 2>/dev/null \
+  | python3 -c 'import json,sys
+try:
+    env = json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0].get("env", [])
+    print(next((v.get("value", "") for v in env if v.get("name") == "CORS_ORIGIN"), ""))
+except Exception:
+    print("")' 2>/dev/null || true)"
 CORS="${EXISTING_CORS:-${JV_WEB_URL:-http://localhost:3100}}"
 
 # --allow-unauthenticated is correct: the API does its own Firebase token auth
@@ -64,7 +73,7 @@ gcloud run deploy "$SERVICE" \
   --allow-unauthenticated \
   --max-instances 3 \
   --memory 512Mi \
-  --set-env-vars "FIREBASE_API_KEY=${FIREBASE_API_KEY},FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID},ALLOW_PUBLIC_SIGNUP=false,DEFAULT_GST_RATE=${DEFAULT_GST_RATE:-5},JV_COLLECTION_PREFIX=${COLLECTION_PREFIX:-jv_},ADMIN_EMAILS=${ADMIN_EMAILS},CORS_ORIGIN=${CORS}" \
+  --set-env-vars "^@^FIREBASE_API_KEY=${FIREBASE_API_KEY}@FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID}@ALLOW_PUBLIC_SIGNUP=false@DEFAULT_GST_RATE=${DEFAULT_GST_RATE:-5}@WASTAGE_TOLERANCE_PERCENT=${WASTAGE_TOLERANCE:-3}@JV_COLLECTION_PREFIX=${COLLECTION_PREFIX:-jv_}@ADMIN_EMAILS=${ADMIN_EMAILS}@CORS_ORIGIN=${CORS}" \
   --quiet
 
 URL="$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')"

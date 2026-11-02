@@ -53,10 +53,14 @@ eq('lot inward kg', lot.inwardKg, 100);
 eq('lot outward kg', lot.outwardKg, 98.5);
 eq('lot balance kg', lot.balanceKg, 1.5);
 eq('wastage percent', lot.gapPercent, 1.5);
-eq('lot still open', lot.open, true);
+// 98.5 kg back from 100 kg is a 1.5% loss — that is what twisting costs, not
+// 1.5 kg of the client's yarn still sitting here. The lot is finished.
+eq('finished lot is complete, not open', [lot.complete, lot.open], [true, false]);
+eq('its shortfall is recorded as wastage', lot.wastageKg, 1.5);
 
 const { clients: rows, totals } = summarise(entries, [client]);
-eq('material with us (kg)', rows[0].materialKg, 1.5);
+eq('nothing of theirs left on the floor', rows[0].materialKg, 0);
+eq('and 1.5 kg written off as wastage', rows[0].wastageKg, 1.5);
 eq('billed', rows[0].billed, 1861.65);
 eq('paid', rows[0].paid, 1000);
 eq('client balance', rows[0].balance, 861.65);
@@ -72,10 +76,21 @@ eq('opening balance carried', withOpening[2].runningBalance, 5861.65);
 const t = totalsFor(entries);
 eq('slice totals', [t.inwardKg, t.outwardKg, t.billed, t.gst, t.paid], [100, 98.5, 1861.65, 88.65, 1000]);
 
-// Trading material is JV's own stock, so it must not count as client material
+// A lot still genuinely short — 300 of 1000 kg delivered — is open, and its
+// 700 kg is the client's yarn still on JV's floor.
+const partial = [
+  mk({ kind: 'inward', date: '2026-11-05', clientId: 'c1', clientName: 'Shah Textiles', lotNo: 'L-PART', netWeight: 1000 }, '2026-11-05T09:00:00Z'),
+  mk({ kind: 'outward', date: '2026-11-09', clientId: 'c1', clientName: 'Shah Textiles', lotNo: 'L-PART', netWeight: 300, rate: 18, gstRate: 5 }, '2026-11-09T09:00:00Z'),
+];
+const openLot = lots(partial)[0];
+eq('part-delivered lot stays open', [openLot.open, openLot.complete], [true, false]);
+eq('its balance is the yarn still here', openLot.balanceKg, 700);
+eq('and it counts as material with us', summarise(partial, [client]).clients[0].materialKg, 700);
+
+// Trading material is JV's own stock, so it must never count as a client's.
 const trade = mk({ kind: 'inward', date: '2026-11-02', clientId: 'c1', clientName: 'Shah Textiles',
   account: 'trading', netWeight: 50, lotNo: 'T-9' }, '2026-11-02T09:00:00Z');
-eq('trading excluded from client material', summarise([...entries, trade], [client]).clients[0].materialKg, 1.5);
+eq('trading adds nothing to client material', summarise([...partial, trade], [client]).clients[0].materialKg, 700);
 
 // Ordering. An outward dated before the inward that supplied it drives the
 // running material balance negative on the way through, which is legitimate —
@@ -85,14 +100,16 @@ eq('trading excluded from client material', summarise([...entries, trade], [clie
 const early = mk({ kind: 'outward', date: '2026-11-02', clientId: 'c1', clientName: 'Shah Textiles',
   lotNo: 'L-002', netWeight: 39.2, rate: 18, gstRate: 5 }, '2026-11-02T09:00:00Z');
 const late = mk({ kind: 'inward', date: '2026-12-03', clientId: 'c1', clientName: 'Shah Textiles',
-  lotNo: 'L-002', netWeight: 40 }, '2026-12-03T09:00:00Z');
+  lotNo: 'L-002', netWeight: 400 }, '2026-12-03T09:00:00Z');
+// Walked in date order the running total goes 100 → 60.8 → -37.7 → 362.3, so it
+// is negative in the middle. Less L-001's 1.5 kg of wastage, 360.8 kg remain.
 const ooo = summarise([...entries, early, late], [client]);
-eq('material balance survives out-of-order entries', ooo.clients[0].materialKg, 2.3);
-eq('and its totals agree', ooo.totals.materialKg, 2.3);
-eq('inward total unaffected', ooo.clients[0].inwardKg, 140);
+eq('material balance survives out-of-order entries', ooo.clients[0].materialKg, 360.8);
+eq('and its totals agree', ooo.totals.materialKg, 360.8);
+eq('inward total unaffected', ooo.clients[0].inwardKg, 500);
 eq('outward total unaffected', ooo.clients[0].outwardKg, 137.7);
-eq('lot balances agree with the material balance',
-  lots([...entries, early, late]).filter((l) => l.open).reduce((n, l) => Math.round((n + l.balanceKg) * 1000) / 1000, 0), 2.3);
+eq('open lot balances agree with the material balance',
+  lots([...entries, early, late]).filter((l) => l.open).reduce((n, l) => Math.round((n + l.balanceKg) * 1000) / 1000, 0), 360.8);
 
 // A client who has had more delivered than they sent is in material credit, and
 // that must show as a negative rather than being floored at zero.

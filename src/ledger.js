@@ -20,6 +20,7 @@
  */
 
 import { money, kg, kgSigned } from './yarn.js';
+import { config } from './config.js';
 
 /** Date first, then insertion order, so same-day entries read as they were entered. */
 export const byDate = (a, b) =>
@@ -117,14 +118,26 @@ export function lots(entries) {
   return [...map.values()]
     .map((lot) => {
       const balanceKg = kg(Math.max(0, lot.inwardKg - lot.outwardKg));
+      const gapPercent =
+        lot.inwardKg > 0 ? money(((lot.inwardKg - lot.outwardKg) / lot.inwardKg) * 100) : 0;
+
+      // A delivered lot is never exactly square — twisting loses a little — so
+      // a lot whose shortfall is within tolerance is finished, and the residue
+      // is wastage rather than yarn still on the floor. Without this every
+      // completed lot would stay open forever and the material balance would
+      // climb by the wastage of every job ever done.
+      const complete = lot.outwardKg > 0 && gapPercent <= config.wastageTolerancePercent;
+
       return {
         ...lot,
         balanceKg,
-        // Read as "still to come back" on an open lot, and as wastage once the
-        // lot is finished. The UI says which, using `delivered`.
-        gapPercent: lot.inwardKg > 0 ? money(((lot.inwardKg - lot.outwardKg) / lot.inwardKg) * 100) : 0,
+        // On an open lot this is what is still to come back; on a complete one
+        // it is the wastage. `complete` says which.
+        gapPercent,
         delivered: lot.outwardKg > 0,
-        open: balanceKg > 0.0005,
+        complete,
+        wastageKg: complete ? balanceKg : 0,
+        open: !complete && balanceKg > 0.0005,
       };
     })
     .sort((a, b) => (b.lastDate || '').localeCompare(a.lastDate || ''));
@@ -140,6 +153,15 @@ export function lots(entries) {
 export function summarise(entries, clients = []) {
   const byClient = new Map();
 
+  // Wastage on finished lots has left the building: it is neither owed back nor
+  // sitting on the floor, so it is taken out of the material balance.
+  const writtenOff = new Map();
+  for (const lot of lots(entries)) {
+    if (lot.complete && lot.account === 'jobwork') {
+      writtenOff.set(lot.clientId, kgSigned((writtenOff.get(lot.clientId) || 0) + lot.wastageKg));
+    }
+  }
+
   const seed = (id, name) => {
     if (byClient.has(id)) return byClient.get(id);
     const client = clients.find((c) => c.id === id);
@@ -150,6 +172,7 @@ export function summarise(entries, clients = []) {
       known: !!client,
       openingBalance: money(client?.openingBalance ?? 0),
       materialKg: 0,
+      wastageKg: 0,
       billed: 0,
       paid: 0,
       inwardKg: 0,
@@ -182,13 +205,23 @@ export function summarise(entries, clients = []) {
   }
 
   const rows = [...byClient.values()]
-    .map((r) => ({ ...r, balance: money(r.openingBalance + r.billed - r.paid) }))
+    .map((r) => {
+      const wastageKg = kgSigned(writtenOff.get(r.clientId) || 0);
+      return {
+        ...r,
+        wastageKg,
+        // What is genuinely still here, with finished lots' wastage removed.
+        materialKg: kgSigned(r.materialKg - wastageKg),
+        balance: money(r.openingBalance + r.billed - r.paid),
+      };
+    })
     .sort((a, b) => b.balance - a.balance || a.clientName.localeCompare(b.clientName));
 
   const totals = rows.reduce(
     (t, r) => ({
       clients: t.clients + 1,
       materialKg: kgSigned(t.materialKg + r.materialKg),
+      wastageKg: kgSigned(t.wastageKg + r.wastageKg),
       inwardKg: kg(t.inwardKg + r.inwardKg),
       outwardKg: kg(t.outwardKg + r.outwardKg),
       billed: money(t.billed + r.billed),
@@ -201,6 +234,7 @@ export function summarise(entries, clients = []) {
     {
       clients: 0,
       materialKg: 0,
+      wastageKg: 0,
       inwardKg: 0,
       outwardKg: 0,
       billed: 0,

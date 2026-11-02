@@ -21,6 +21,12 @@ export const config = {
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean),
 
+  // A finished lot never returns the exact weight that came in — twisting loses
+  // a little. Below this percentage the shortfall is treated as wastage and the
+  // lot counts as complete; above it, the yarn is taken to be still on the
+  // floor. Typical twisting loss is 0.5–2%.
+  wastageTolerancePercent: Number(process.env.WASTAGE_TOLERANCE_PERCENT ?? 3),
+
   // Default GST rate on job-work billing. Guidance on the rate for yarn
   // twisting under SAC 9988 is not consistent, so it is configurable here and
   // overridable per client and per entry — never hardcoded in the domain code.
