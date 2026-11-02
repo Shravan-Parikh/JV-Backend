@@ -12,6 +12,11 @@
 // Everything here is scoped to collections prefixed `jv_`, so no existing
 // collection is read, written or affected.
 //
+// Status: these blocks ARE in force as of 2 Nov 2026, published as part of a
+// project-wide ruleset that also covers the other apps sharing the project.
+// This file remains the canonical source for JV's own rules; edit it here, then
+// fold the change into that project-wide ruleset.
+//
 // Once JV has a Firebase project of its own this file becomes the whole
 // ruleset and can be published directly — see backend/scripts/migrate-firebase.js.
 

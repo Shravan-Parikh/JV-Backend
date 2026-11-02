@@ -23,9 +23,23 @@ existing ruleset, alongside the blocks already there. Do **not** publish the
 file as-is: Firestore rules are project-wide and publishing replaces
 everything, which would break the other apps in this project.
 
-> Worth knowing: as things stand, that project's rules let **any signed-in user
-> read and write any other user's documents**. Merging these blocks closes that
-> for `jv_*`, and the CS Dashboard's `cs_*` blocks deserve the same treatment.
+> **Done on 2 Nov 2026.** Before that, the project's published rule was
+> `match /{document=**} { allow read, write: if true; }` — every collection
+> readable *and writable* by anyone on the internet, with no sign-in. An
+> unauthenticated GET of `jv_users` returned HTTP 200.
+>
+> The ruleset now in force locks `jv_*` and `cs_*` to their owners. The other
+> apps' collections in that project are named explicitly and keep the
+> permissions they already had, so nothing that worked could break — they are
+> unchanged, not secured, and still deserve attention app by app.
+>
+> One behaviour change to know about: with the catch-all gone, a collection that
+> is not named in the ruleset is denied by default. If another app starts
+> writing to a brand-new collection, add a rule for it first.
+>
+> To roll back, point the `cloud.firestore` release at the previous ruleset —
+> its id is in the deploy notes kept alongside this work, and Firebase Console →
+> Firestore → Rules also keeps a version history with one-click revert.
 
 **2. Authenticate and pick the project.**
 
