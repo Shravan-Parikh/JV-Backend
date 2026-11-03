@@ -20,7 +20,8 @@
  * arithmetic as anything typed into the form.
  */
 
-import { signIn } from '../src/firebase.js';
+import { signIn, getDoc, setDoc, deleteDoc, listDocuments } from '../src/firebase.js';
+import { LEDGERS, monthsPath } from '../src/collections.js';
 
 const [, , email, password, ...flags] = process.argv;
 const REMOVE = flags.includes('--remove');
@@ -295,6 +296,29 @@ async function remove() {
   console.log(`\nRemoving ${entries.length} entries and ${clients.length} clients…`);
   for (const e of entries) await call(`/entries/${e.id}?date=${e.date}`, { method: 'DELETE' });
   for (const c of clients) await call(`/clients/${c.id}`, { method: 'DELETE' });
+
+  // Deleting entries empties the month documents but leaves them behind, along
+  // with an index still naming them. Harmless — they read as empty — but it
+  // means every later read opens months that hold nothing, and "put it back how
+  // you found it" should mean exactly that.
+  const months = await listDocuments(monthsPath(auth.uid), { idToken: auth.idToken });
+  const emptied = [];
+  for (const m of months) {
+    if ((m.entries || []).length === 0) {
+      await deleteDoc(monthsPath(auth.uid), m.id, auth.idToken);
+      emptied.push(m.id);
+    }
+  }
+  if (emptied.length) {
+    const ledger = await getDoc(LEDGERS, auth.uid, auth.idToken);
+    const left = (ledger?.months || []).filter((m) => !emptied.includes(m));
+    if (left.length) {
+      await setDoc(LEDGERS, auth.uid, { uid: auth.uid, months: left, updatedAt: new Date() }, auth.idToken);
+    } else {
+      await deleteDoc(LEDGERS, auth.uid, auth.idToken);
+    }
+    console.log(`  cleared ${emptied.length} empty month document(s): ${emptied.join(', ')}`);
+  }
 
   const after = await call('/ledger/summary');
   console.log(
